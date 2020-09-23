@@ -1,10 +1,8 @@
-var runs = require('./runs');
-
 /*  Returns a font CSS/Canvas string based on the settings in a run
  */
 var getFontString = exports.getFontString = function(run) {
 
-    var size = (run && run.size) || runs.defaultFormatting.size;
+    var size = (run && run.size);
 
     if (run) {
         switch (run.script) {
@@ -12,19 +10,20 @@ var getFontString = exports.getFontString = function(run) {
             case 'sub':
                 size *= 0.8;
                 break;
+            default:
         }
     }
 
     return (run && run.italic ? 'italic ' : '') +
            (run && run.bold ? 'bold ' : '') + ' ' +
             size + 'pt ' +
-          ((run && run.font) || runs.defaultFormatting.font);
+          ((run && run.font));
 };
 
 /*  Applies the style of a run to the canvas context
  */
 exports.applyRunStyle = function(ctx, run) {
-    ctx.fillStyle = (run && run.color) || runs.defaultFormatting.color;
+    ctx.fillStyle = (run && run.color);
     ctx.font = getFontString(run);
 };
 
@@ -38,7 +37,7 @@ exports.prepareContext = function(ctx) {
 exports.getRunStyle = function(run) {
     var parts = [
         'font: ', getFontString(run),
-      '; color: ', ((run && run.color) || runs.defaultFormatting.color)
+      '; color: ', ((run && run.color))
     ];
 
     if (run) {
@@ -49,6 +48,7 @@ exports.getRunStyle = function(run) {
             case 'sub':
                 parts.push('; vertical-align: sub');
                 break;
+            default:
         }
     }
 
@@ -56,7 +56,7 @@ exports.getRunStyle = function(run) {
 };
 
 var nbsp = exports.nbsp = String.fromCharCode(160);
-var enter = exports.enter = nbsp; // String.fromCharCode(9166);
+exports.enter = nbsp; // String.fromCharCode(9166);
 
 /*  Returns width, height, ascent, descent in pixels for the specified text and font.
     The ascent and descent are measured from the baseline. Note that we add/remove
@@ -79,7 +79,7 @@ var measureText = exports.measureText = function(text, style) {
     div.style.position = 'absolute';
     div.style.top = '0';
     div.style.left = '0';
-    div.style.width = '500px';
+    div.style.width = '2000px';
     div.style.height = '200px';
 
     div.appendChild(span);
@@ -89,15 +89,24 @@ var measureText = exports.measureText = function(text, style) {
         span.setAttribute('style', style);
 
         span.innerHTML = '';
-        span.appendChild(document.createTextNode(text.replace(/\s/g, nbsp)));
+        span.style.fontKerning = 'none';
+
+        // The width of nbsp and normal space is different
+        // To get the correct space width normal space is sandwiched between non breaking zero width space
+        span.appendChild(document.createTextNode(text.replace(/\s/g, '\uFEFF \uFEFF')));
 
         var result = {};
         block.style.verticalAlign = 'baseline';
-        result.ascent = (block.offsetTop - span.offsetTop);
+
+        // Note: offsetWidth and offestTop values are bit different conpmaring to
+        // getBoundingClientRect.width / top, the correct measurements should be
+        // taken from getBoundingClientRect
+
+        result.ascent = (block.getBoundingClientRect().top - span.getBoundingClientRect().top);
         block.style.verticalAlign = 'bottom';
-        result.height = (block.offsetTop - span.offsetTop);
+        result.height = (block.getBoundingClientRect().top - span.getBoundingClientRect().top);
         result.descent = result.height - result.ascent;
-        result.width = span.offsetWidth;
+        result.width = span.getBoundingClientRect().width;
     } finally {
         div.parentNode.removeChild(div);
         div = null;
@@ -150,12 +159,13 @@ exports.draw = function(ctx, str, formatting, left, baseline, width, ascent, des
         case 'sub':
             baseline += (descent / 2);
             break;
+        default:
     }
     ctx.fillText(str === '\n' ? exports.enter : str, left, baseline);
     if (formatting.underline) {
         ctx.fillRect(left, 1 + baseline, width, 1);
     }
     if (formatting.strikeout) {
-        ctx.fillRect(left, 1 + baseline - (ascent/2), width, 1);
+        ctx.fillRect(left, 1 + baseline - (ascent * 0.4), width, 1);
     }
 };

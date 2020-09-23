@@ -29,13 +29,13 @@ var runs = require('./runs');
 
 var prototype = {
     isNewLine: function() {
-        return this.text.parts.length == 1 && this.text.parts[0].isNewLine;
+        return this.text.parts.length === 1 && this.text.parts[0].isNewLine;
     },
     code: function() {
-        return this.text.parts.length == 1 && this.text.parts[0].code;
+        return this.text.parts.length === 1 && this.text.parts[0].code;
     },
     codeFormatting: function() {
-        return this.text.parts.length == 1 && this.text.parts[0].run;
+        return this.text.parts.length === 1 && this.text.parts[0].run;
     },
     draw: function(ctx, x, y) {
         per(this.text.parts).concat(this.space.parts).forEach(function(part) {
@@ -48,10 +48,10 @@ var prototype = {
     },
     align: function() {
         var first = this.text.parts[0];
-        return first ? first.run.align : 'left';
+        return ( first && first.run.align ) ? first.run.align : this.defaultFormatting.align;
     },
     runs: function(emit, range) {
-        var start = range && range.start || 0,
+        var start = (range && range.start) || 0,
             end = range && range.end;
         if (typeof end !== 'number') {
             end = Number.MAX_VALUE;
@@ -83,6 +83,7 @@ var prototype = {
                     start--;
                     end--;
                 }
+                return false;
             });
         });
     }
@@ -109,7 +110,7 @@ var section = function(runEmitter, codes) {
     return s;
 };
 
-module.exports = function(coords, codes) {
+module.exports = function( defaultFormatting, coords, codes) {
     var text, space;
     if (!coords) {
         // special end-of-document marker, mostly like a newline with no formatting
@@ -129,6 +130,7 @@ module.exports = function(coords, codes) {
         width: { value: text.width + space.width, configurable: true },
         length: { value: text.length + space.length }
     });
+    word.defaultFormatting = defaultFormatting;
     if (!coords) {
         Object.defineProperty(word, 'eof', { value: true });
     }

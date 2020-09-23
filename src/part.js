@@ -2,11 +2,11 @@ var text = require('./text');
 
 var defaultInline = {
     measure: function(formatting) {
-        var text = text.measure('?', formatting);
+        const t = text.measure('?', formatting);
         return {
-            width: text.width + 4,
-            ascent: text.width + 2,
-            descent: text.width + 2
+            width: t.width + 4,
+            ascent: t.width + 2,
+            descent: t.width + 2
         };
     },
     draw: function(ctx, x, y, width, ascent, descent) {

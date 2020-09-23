@@ -1,3 +1,4 @@
+var html = require('./html');
 var per = require('per');
 var characters = require('./characters');
 var split = require('./split');
@@ -9,6 +10,8 @@ var util = require('./util');
 var frame = require('./frame');
 var codes = require('./codes');
 var rect = require('./rect');
+var he = require('he');
+var isUrlValid = require('url-validation');
 
 var makeEditCommand = function(doc, start, count, words) {
     var selStart = doc.selection.start, selEnd = doc.selection.end;
@@ -46,19 +49,71 @@ var isBreaker = function(word) {
 };
 
 var prototype = node.derive({
-    load: function(runs, takeFocus) {
+    load: function(value, takeFocus) {
+        if ( !this.defaultFormatting ) {
+            throw new Error( 'defaultFormatting for carota editor is not set' );
+        }
+        var runs;
+        if ( value === '' ) {
+            runs = [{ text: '' }];
+        } else if( typeof value === 'string' ) {
+            runs = html.parse( value, this.defaultFormatting );
+            /**
+             * FIXME - The carota html parser adds an aditional new line element
+             * for P tags and also adds a newline to the last text value depending on the
+             * html string.
+             * <p>hi</p>   ->  [{ text: 'hi/n' }]
+             * <p><span>hi</span></p><p><span>hi</span></p>   ->  [{ text: 'hi' }, { text: '\n' }],[{ text: 'hi' }, { text: '\n' }]
+             */
+            var last = runs[ runs.length  - 1 ];
+            if ( last.text === '\n'  ) {
+                runs.splice( -1, 1 );
+            }
+            if ( runs.length > 0 ) {
+                last = runs[ runs.length  - 1 ];
+                if ( last.text ) {
+                    last.text = last.text.trimRight();
+                }
+            }
+        } else {
+            runs = value.map(function (run) {
+                return Object.assign({}, run);
+            });
+        }
+
         var self = this;
         this.undo = [];
         this.redo = [];
         this._wordOrdinals = [];
         this.words = per(characters(runs)).per(split(self.codes)).map(function(w) {
-            return word(w, self.codes);
+            return word( self.defaultFormatting, w, self.codes);
         }).all();
+
+
+        /**
+         * Carota adds a new word with a new line to mark end-of-document and it's height is not specified
+         * the height should equal to the previous line height
+         */
+        if( this.words && this.words[ this.words.length - 1 ]
+            && this.words[ this.words.length - 2 ]
+            && this.words[ this.words.length - 1 ].text.plainText === '\n'
+        ) {
+            var prev = this.words[ this.words.length - 2 ];
+            var cur = this.words[ this.words.length - 1 ];
+
+            // word properties are created by cloning using Object.create() and ascent and descent 
+            // properties are readonly, so have to delete and set.
+            delete cur.ascent;
+            cur.ascent = prev.ascent;
+            delete cur.descent;
+            cur.descent = prev.descent;
+        }
+        
         this.layout();
         this.contentChanged.fire();
         this.select(0, 0, takeFocus);
     },
-    layout: function() {
+    layout: function(takeFocus) {
         this.frame = null;
         try {
             this.frame = per(this.words).per(frame(0, 0, this._width, 0, this)).first();
@@ -71,7 +126,7 @@ var prototype = node.derive({
         } else if (this._nextSelection) {
             var next = this._nextSelection;
             delete this._nextSelection;
-            this.select(next.start, next.end);
+            this.select(next.start, next.end,takeFocus);
         }
     },
     range: function(start, end) {
@@ -80,6 +135,149 @@ var prototype = node.derive({
     documentRange: function() {
         return this.range(0, this.frame.length - 1);
     },
+    getDrawableContent: function() {
+        var words = [];
+        var underLines = [];        
+        var strikLines = [];        
+        for (let i = 0; i < this.frame.lines.length; i++) {
+            var line = this.frame.lines[i];
+            if ( line.positionedWords ) {
+                for (let j = 0; j < line.positionedWords.length; j++) {
+                    var left = line.positionedWords[j].left;
+                    var word = line.positionedWords[j].word;
+
+                    if ( !word.text.parts || !word.text.parts.length || !word.text.parts[0] ) {
+                        continue;
+                    }
+
+                    for (let k = 0; k < word.text.parts.length; k++) {
+                        var text = word.text.parts[k];
+                        if ( text.run.underline === true ) {
+                            underLines.push({
+                                baseline: line.baseline,
+                                width: word.width, // text width + space width,
+                                left,
+                                color: text.run.color || this.defaultFormatting.color,
+                            })
+                        }
+    
+                        if ( text.run.strikeout === true ) {
+                            strikLines.push({
+                                ascent: word.ascent,
+                                baseline: line.baseline,
+                                width: word.width, // text width + space width,
+                                left,
+                                color: text.run.color || this.defaultFormatting.color,
+                            })
+                        }
+    
+                        words.push({
+                            baseline: line.baseline,
+                            left,
+                            content: {
+                                text: he.encode( text.run.text.trim()) + '&#160;'.repeat( word.space.length ),
+                                size: text.run.size || this.defaultFormatting.size,
+                                font: text.run.font || this.defaultFormatting.font,
+                                color: text.run.color || this.defaultFormatting.color,
+                                bold: text.run.bold || this.defaultFormatting.bold,
+                                italic: text.run.italic || this.defaultFormatting.italic,
+                                underline: text.run.underline || this.defaultFormatting.underline,
+                                strikeout: text.run.strikeout || this.defaultFormatting.strikeout,
+                                align: text.run.align || this.defaultFormatting.align,
+                                script: text.run.script || this.defaultFormatting.script,
+                                link: text.run.link,
+                            }
+                        })
+                        left = left + text.width;
+                    }
+                }
+            }
+            
+        }
+        return { words, underLines, strikLines };
+    },
+    getLinksData: function() {
+        var links = [];        
+        for (let i = 0; i < this.frame.lines.length; i++) {
+            var line = this.frame.lines[i];
+            if ( line.positionedWords ) {
+                for (let j = 0; j < line.positionedWords.length; j++) {
+                    var left = line.positionedWords[j].left;
+                    var word = line.positionedWords[j].word;
+
+                    if ( !word.text.parts || !word.text.parts.length || !word.text.parts[0] ) {
+                        continue;
+                    }
+                    for (let k = 0; k < word.text.parts.length; k++) {
+                        const text = word.text.parts[k];
+                        if ( text.run.link ) {
+                            links.push({
+                                value: text.run.link,
+                                text: text.run.text,
+                                x: left,
+                                y: line.baseline - text.ascent,
+                                width: text.width,
+                                height: text.ascent + text.descent,
+                            });
+                        }
+                        left = left + text.width;    
+                    }
+                }
+            }
+        }
+        return links;
+    },    
+    isMultiLine: function() {
+        return this.frame.lines.length > 1;
+    },
+    isCaretAtEnd: function() {
+        return this.documentRange().end === this.selection.end;
+    },
+    isCaretAtStart: function() {
+        return this.documentRange().start === this.selection.end;
+    },
+    isCaretAtLastLine: function() {
+        var endCaret = this.getCaretCoords( this.documentRange().end );
+        var currentCaret = this.getCurrentCaret();
+        return endCaret.t === currentCaret.t;
+    },
+    isCaretAtFirstLine: function() {
+        var startCaret = this.getCaretCoords( this.documentRange().start );
+        var currentCaret = this.getCurrentCaret();
+        return startCaret.t === currentCaret.t;
+    },
+    getCurrentCaret: function() {
+        return this.getCaretCoords( this.selection.end );
+    },
+
+    getSelectionBounds: function() {
+        var startCaret = this.getCaretCoords( this.selection.start );
+        if ( this.selection.end === this.selection.start ) {
+            return {
+                x: startCaret.l,
+                y: startCaret.t,
+                width: 0,
+                height: startCaret.h,
+            };
+        }
+        var endCaret = this.getCaretCoords( this.selection.end );
+        if ( startCaret.t === endCaret.t ) {
+            return {
+                x: startCaret.l,
+                y: startCaret.t,
+                width: endCaret.l - startCaret.l,
+                height: endCaret.b - startCaret.t,
+            }
+        } else {
+            return {
+                x: 0,
+                y: startCaret.t,
+                width: this.frame._bounds.w,
+                height: endCaret.b - startCaret.t,
+            }
+        }
+    },
+
     selectedRange: function() {
         return this.range(this.selection.start, this.selection.end);
     },
@@ -118,9 +316,9 @@ var prototype = node.derive({
     insert: function(text, takeFocus) {
         this.select(this.selection.end + this.selectedRange().setText(text), null, takeFocus);
     },
-    modifyInsertFormatting: function(attribute, value) {
+    modifyInsertFormatting: function(attribute, value, takeFocus) {
         this.nextInsertFormatting[attribute] = value;
-        this.notifySelectionChanged();
+        this.notifySelectionChanged(takeFocus);
     },
     applyInsertFormatting: function(text) {
         var formatting = this.nextInsertFormatting;
@@ -161,33 +359,36 @@ var prototype = node.derive({
                 return true;
             }
             pos += word.length;
+            return false;
         });
         return result;
     },
     runs: function(emit, range) {
         var startDetails = this.wordContainingOrdinal(Math.max(0, range.start)),
             endDetails = this.wordContainingOrdinal(Math.min(range.end, this.frame.length - 1));
-        if (startDetails.index === endDetails.index) {
-            startDetails.word.runs(emit, {
-                start: startDetails.offset,
-                end: endDetails.offset
-            });
-        } else {
-            startDetails.word.runs(emit, { start: startDetails.offset });
-            for (var n = startDetails.index + 1; n < endDetails.index; n++) {
-                this.words[n].runs(emit);
+        if (startDetails && endDetails) {
+            if (startDetails.index === endDetails.index) {
+                startDetails.word.runs(emit, {
+                    start: startDetails.offset,
+                    end: endDetails.offset
+                });
+            } else {
+                startDetails.word.runs(emit, { start: startDetails.offset });
+                for (var n = startDetails.index + 1; n < endDetails.index; n++) {
+                    this.words[n].runs(emit);
+                }
+                endDetails.word.runs(emit, { end: endDetails.offset });
             }
-            endDetails.word.runs(emit, { end: endDetails.offset });
         }
     },
-    spliceWordsWithRuns: function(wordIndex, count, runs) {
+    spliceWordsWithRuns: function(wordIndex, count, runs, takeFocus) {
         var self = this;
 
         var newWords = per(characters(runs))
             .per(split(self.codes))
             .truthy()
             .map(function(w) {
-                return word(w, self.codes);
+                return word( self.defaultFormatting, w, self.codes);
             })
             .all();
 
@@ -215,7 +416,7 @@ var prototype = node.derive({
                 self._filtersRunning = 0;
                 try {
                     for (;;) {
-                        var spliceCount = self._filtersRunning;
+                        const spliceCount = self._filtersRunning;
                         if (!self.editFilters.some(function(filter) {
                             filter(self);
                             return spliceCount !== self._filtersRunning;
@@ -227,9 +428,22 @@ var prototype = node.derive({
                     delete self._filtersRunning;
                 }
             }
-        });
+        }, takeFocus);
     },
-    splice: function(start, end, text) {
+    splice: function(start, end, text, takeFocus) {
+
+        // This if block added to fix the carota editor new line caret position is
+        // not in accordance with the text alignment
+        if ( this.words.length > 1 ) {
+            var last = this.words[ this.words.length - 1 ];
+            if ( last.text.plainText === '\n' && !last.text.parts[0].run.align ) {
+                var prevTextpart =  this.words[ this.words.length - 2 ].text.parts[0];
+                if ( prevTextpart && prevTextpart.run && prevTextpart.run.align ) {
+                    last.text.parts[0].run.align = prevTextpart.run.align;
+                }                
+            }
+        }
+
         if (typeof text === 'string') {
             var sample = Math.max(0, start - 1);
             var sampleRun = per({ start: sample, end: sample + 1 })
@@ -248,38 +462,44 @@ var prototype = node.derive({
             endWord = this.wordContainingOrdinal(end);
 
         var prefix;
-        if (start === startWord.ordinal) {
-            if (startWord.index > 0 && !isBreaker(this.words[startWord.index - 1])) {
-                startWord.index--;
-                var previousWord = this.words[startWord.index];
-                prefix = per({}).per(previousWord.runs, previousWord).all();
+        if(startWord) {
+            if (start === startWord.ordinal) {
+                if (startWord.index > 0 && !isBreaker(this.words[startWord.index - 1])) {
+                    startWord.index--;
+                    var previousWord = this.words[startWord.index];
+                    prefix = per({}).per(previousWord.runs, previousWord).all();
+                } else {
+                    prefix = [];
+                }
             } else {
-                prefix = [];
+                prefix = per({ end: startWord.offset })
+                        .per(startWord.word.runs, startWord.word)
+                        .all();
             }
-        } else {
-            prefix = per({ end: startWord.offset })
-                    .per(startWord.word.runs, startWord.word)
-                    .all();
         }
 
         var suffix;
-        if (end === endWord.ordinal) {
-            if ((end === this.frame.length - 1) || isBreaker(endWord.word)) {
-                suffix = [];
-                endWord.index--;
+        if(endWord) {
+            if (end === endWord.ordinal) {
+                if ((end === this.frame.length - 1) || isBreaker(endWord.word)) {
+                    suffix = [];
+                    endWord.index--;
+                } else {
+                    suffix = per({}).per(endWord.word.runs, endWord.word).all();
+                }
             } else {
-                suffix = per({}).per(endWord.word.runs, endWord.word).all();
+                suffix = per({ start: endWord.offset })
+                        .per(endWord.word.runs, endWord.word)
+                        .all();
             }
-        } else {
-            suffix = per({ start: endWord.offset })
-                    .per(endWord.word.runs, endWord.word)
-                    .all();
         }
 
         var oldLength = this.frame.length;
 
-        this.spliceWordsWithRuns(startWord.index, (endWord.index - startWord.index) + 1,
-            per(prefix).concat(text).concat(suffix).per(runs.consolidate()).all());
+        if(startWord && endWord) {
+            this.spliceWordsWithRuns(startWord.index, (endWord.index - startWord.index) + 1,
+                per(prefix).concat(text).concat(suffix).per(runs.consolidate( this.defaultFormatting )).all(), takeFocus);
+        }
 
         return this.frame ? (this.frame.length - oldLength) : 0;
     },
@@ -346,7 +566,10 @@ var prototype = node.derive({
     },
     drawSelection: function(ctx, hasFocus) {
         if (this.selection.end === this.selection.start) {
-            if (this.selectionJustChanged || hasFocus && this.caretVisible) {
+            if (this.hideCaret)
+                return;
+
+            if (this.selectionJustChanged || (hasFocus && this.caretVisible)) {
                 var caret = this.getCaretCoords(this.selection.start);
                 if (caret) {
                     ctx.save();
@@ -398,6 +621,169 @@ var prototype = node.derive({
         */
         this.notifySelectionChanged(takeFocus);
     },
+    selectFrom: function( start, takeFocus ){
+        this.select( start, this.frame.length - 1, takeFocus );
+    },
+    selectAll: function(){
+        this.select( 0, this.frame.length - 1, true );
+    },
+
+    /**
+     * Returns a range, to left and right, relative to the current caret position,
+     * where each value of specified properties are uniform.
+     * @param styles string array that specifies the properties to check
+     */
+    selectByProperties: function( styles ){
+        const currentCaret = this.selection.start;
+        const currentFormat = this.selectedRange().getFormatting();
+        const middleFormat = {};
+        styles.map( key => middleFormat[ key ] = currentFormat[ key ] );        
+
+        let left = 1;
+        if ( currentCaret > 0 ) {
+            while ( currentCaret - left >= 0 ) {
+                const leftFormat = this.range( currentCaret - left, currentCaret ).getFormatting();   
+                if ( !Object.keys( middleFormat ).every( key => middleFormat[ key ] === leftFormat[ key ])) {
+                    break;
+                }
+                left++;
+            }
+        }
+
+        let right = 1;
+        if ( currentCaret < this.frame.length ) {
+            while ( currentCaret + right <= this.frame.length - 1 ) {
+                const rightFormat = this.range( currentCaret, currentCaret + right ).getFormatting();
+                if ( !Object.keys( middleFormat ).every( key => middleFormat[ key ] === rightFormat[ key ])) {
+                    break;
+                }
+                right++;
+            }
+        }
+        return this.range( currentCaret - left + 1, currentCaret + right - 1 );
+    },
+
+    /**
+     * This function applies the previouse value to the newly entered char.
+     * replacing the link and link related styles
+     */
+    breakHyperlink: function () {
+        var currentCaret = this.selection.start;
+        var newCharRange = this.range( currentCaret - 1, currentCaret );
+        var prevFormat = this.getPreviousFormat([ 'link' ], currentCaret - 1 );
+        newCharRange.setFormatting( 'link', undefined, true );
+        newCharRange.setFormatting( 'color', prevFormat.color, true );
+        newCharRange.setFormatting( 'underline', prevFormat.underline, true );
+    },
+
+    /**
+     * This function returns true if the caret is at the begining or end of a link
+     */
+    isCaretAtHyperlinkEdge: function () {
+        if ( this.selection.start !== this.selection.end && this.frame.length < 1 ) {
+            return false
+        }
+        if ( this.selection.start === 0 && this.range( 0, 0 ).getFormatting().link ) {
+            return true;
+        }
+        var last = this.frame.length - 1;
+        if ( this.selection.start === last && this.range( last, last ).getFormatting().link ) {
+            return true;
+        }
+        var caret = this.selection.start;
+        var leftFormat = this.range( caret, caret ).getFormatting();
+        var rightFormat = this.range( caret, caret + 1 ).getFormatting();
+        if ( leftFormat.link !== rightFormat.link ) {
+            return true;
+        }
+        return false;
+    },
+
+    autoLink: function () {
+        var links =this.words.filter( w => isUrlValid( w.text.plainText ));
+        links.forEach( link =>  {
+            link.text.parts[0].run.link = link.text.plainText;
+            link.text.parts[0].run.color =  'rgb(94, 156, 211)';
+            link.text.parts[0].run.underline = true;
+        });
+        this.notifySelectionChanged( true );
+    },
+    /**
+     * This method is to be run immediately after enter or space key is subjected to `keyup` event.
+     * This method will check if the previous word is a link and sets the link and link styles.
+     */
+    autolinkOnKeyup: function() {
+        var currentCaret = this.selection.start;
+        var wordRange = this.getLeftWordRange( currentCaret - 1 ); // -1 to skip the space or enter
+        var word = wordRange.plainText();
+        if ( !isUrlValid( word )){
+            return;
+        }
+        wordRange.setFormatting( 'link', word.trim(), true );
+        wordRange.setFormatting( 'color', 'rgb(94, 156, 211)', true );
+        wordRange.setFormatting( 'underline', true, true );
+
+        var spaceRange = this.range( currentCaret - 1, currentCaret );
+        var prevFormat = this.getPreviousFormat([ 'link' ], currentCaret - 1 );
+        spaceRange.setFormatting( 'link', undefined, true );
+        spaceRange.setFormatting( 'color', prevFormat.color, true );
+        spaceRange.setFormatting( 'underline', prevFormat.underline, true );
+    },
+
+    /**
+     * This method returns the range of the word that is at the left side to the
+     * `current` position
+     */
+    getLeftWordRange: function( current ) {
+        let left = 1;
+        if ( current > 0 ) {
+            while ( current - left >= 0 ) {
+                var text = this.range( current - left, current ).getFormatting().text;
+                if ( !text || text === ' ' ) {
+                    break;
+                }
+                left++;
+            }
+        }
+        return this.range( current - left + 1, current );
+    },
+
+    /**
+     * Returns the format of the previous text to the text that
+     * the caret is on.
+     * @param styles The styles to consider the difference
+     * @param current The position of the caret
+    */
+    getPreviousFormat: function( styles, current ) {
+        var currentFormat = this.range( current, current ).getFormatting();
+        var middleFormat = {};
+        styles.map( key => middleFormat[ key ] = currentFormat[ key ] );        
+
+        let left = 1;
+        if ( current > 0 ) {
+            while ( current - left >= 0 ) {
+                const leftFormat = this.range( current - left, current ).getFormatting();
+                if ( !Object.keys( middleFormat ).every( key => middleFormat[ key ] === leftFormat[ key ])) {
+                    break;
+                }
+                left++;
+            }
+        }
+        var rigth = current - left + 1;
+        if ( left < 0 ) {
+            return this.defaultFormatting;
+        } else {
+            return this.range( rigth - 1, rigth ).getFormatting();
+        }
+    },
+
+    moveCaretToPoint: function( point ){
+        var node = this.byCoordinate( point.x, point.y );
+        this.select( node.ordinal, node.ordinal, true );
+    },
+    moveCaretToEnd: function(){
+        this.select( this.frame.length - 1, this.frame.length - 1, true );
+    },
     performUndo: function(redo) {
         var fromStack = redo ? this.redo : this.undo,
             toStack = redo ? this.undo : this.redo,
@@ -414,7 +800,7 @@ var prototype = node.derive({
     canUndo: function(redo) {
         return redo ? !!this.redo.length : !!this.undo.length;
     },
-    transaction: function(perform) {
+    transaction: function(perform, takeFocus) {
         if (this._currentTransaction) {
             perform(this._currentTransaction);
         } else {
@@ -434,7 +820,7 @@ var prototype = node.derive({
                 }
             }));
             if (changed) {
-                self.layout();
+                self.layout(takeFocus);
                 self.contentChanged.fire();
             }
         }
@@ -442,8 +828,9 @@ var prototype = node.derive({
     type: 'document'
 });
 
-exports = module.exports = function() {
+exports = module.exports = function( defaultFormatting ) {
     var doc = Object.create(prototype);
+    doc.defaultFormatting = defaultFormatting;
     doc._width = 0;
     doc.selection = { start: 0, end: 0 };
     doc.caretVisible = true;
@@ -456,5 +843,8 @@ exports = module.exports = function() {
     doc.contentChanged = util.event();
     doc.editFilters = [codes.editFilter];
     doc.load([]);
+    doc.setDefaultStyles = function( val ){
+        doc.defaultFormatting = val;
+    }
     return doc;
 };

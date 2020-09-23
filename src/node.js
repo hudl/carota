@@ -1,5 +1,3 @@
-var per = require('per');
-var runs = require('./runs');
 var rect = require('./rect');
 var util = require('./util');
 
@@ -60,6 +58,7 @@ exports.prototype = {
                     return true;
                 }
             }
+            return false;
         })) {
             return found;
         }
@@ -75,6 +74,7 @@ exports.prototype = {
                     return true;
                 }
             }
+            return false;
         });
         if (!found) {
             found = this.last();

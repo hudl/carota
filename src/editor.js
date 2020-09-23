@@ -1,4 +1,3 @@
-var per = require('per');
 var carotaDoc = require('./doc');
 var dom = require('./dom');
 var rect = require('./rect');
@@ -16,8 +15,8 @@ setInterval(function() {
         editors[n].dispatchEvent(ev);
     }
 }, 200);
-
-exports.create = function(element) {
+var editors = new WeakSet();
+var create = function(element, defaultFormatting, drawtext = true ) {
 
     // We need the host element to be a container:
     if (dom.effectiveStyle(element, 'position') !== 'absolute') {
@@ -25,20 +24,20 @@ exports.create = function(element) {
     }
 
     element.innerHTML =
-        '<div class="carotaSpacer">' +
-            '<canvas width="100" height="100" class="carotaEditorCanvas" style="position: absolute;"></canvas>' +
-        '</div>' +
-        '<div class="carotaTextArea" style="overflow: hidden; position: absolute; height: 0;">' +
-            '<textarea autocorrect="off" autocapitalize="off" spellcheck="false" tabindex="0" ' +
-            'style="position: absolute; padding: 0px; width: 1000px; height: 1em; ' +
-            'outline: none; font-size: 4px;"></textarea>'
-        '</div>';
+    `<div class="carotaSpacer">
+        <canvas width="100" height="100" class="carotaEditorCanvas" />
+    </div>
+    <div class="carotaTextArea" style="overflow: hidden; position: absolute; height: 0;">
+        <textarea autocorrect="off" autocapitalize="off" spellcheck="false" tabindex="0" 
+                style="position: absolute; padding: 0px; width: 1000px; height: 1em; 
+                outline: none; font-size: 4px;" />
+    </div>`;
 
     var canvas = element.querySelector('canvas'),
         spacer = element.querySelector('.carotaSpacer'),
         textAreaDiv = element.querySelector('.carotaTextArea'),
         textArea = element.querySelector('textarea'),
-        doc = carotaDoc(),
+        doc = carotaDoc( defaultFormatting ),
         keyboardSelect = 0,
         keyboardX = null, nextKeyboardX = null,
         selectDragStart = null,
@@ -131,6 +130,7 @@ exports.create = function(element) {
                 case 34: // page down
                     keyboardSelect = 1;
                     break;
+                default:
             }
         }
 
@@ -139,7 +139,7 @@ exports.create = function(element) {
         var changingCaret = false;
         switch (key) {
             case 37: // left arrow
-                if (!selecting && start != end) {
+                if (!selecting && start !== end) {
                     ordinal = start;
                 } else {
                     if (ordinal > 0) {
@@ -158,13 +158,13 @@ exports.create = function(element) {
                 changingCaret = true;
                 break;
             case 39: // right arrow
-                if (!selecting && start != end) {
+                if (!selecting && start !== end) {
                     ordinal = end;
                 } else {
                     if (ordinal < length) {
                         if (ctrlKey) {
-                            var wordInfo = doc.wordContainingOrdinal(ordinal);
-                            ordinal = wordInfo.ordinal + wordInfo.word.length;
+                            const wInfo = doc.wordContainingOrdinal(ordinal);
+                            ordinal = wInfo.ordinal + wInfo.word.length;
                         } else {
                             ordinal++;
                         }
@@ -236,6 +236,7 @@ exports.create = function(element) {
                     plainClipboard = doc.selectedRange().plainText();
                 }
                 break;
+            default:
         }
 
         var toggle = toggles[key];
@@ -257,6 +258,7 @@ exports.create = function(element) {
                 case 1:
                     end = ordinal;
                     break;
+                default:
             }
 
             if (start === end) {
@@ -279,10 +281,10 @@ exports.create = function(element) {
     };
 
     dom.handleEvent(textArea, 'keydown', function(ev) {
-        if (handleKey(ev.keyCode, ev.shiftKey, ev.ctrlKey)) {
+        if (handleKey(ev.keyCode, ev.shiftKey, ev.ctrlKey || ev.metaKey )) {
             return false;
         }
-        console.log(ev.which);
+        // console.log(ev.which);
     });
 
     var verticalAlignment = 'top';
@@ -300,48 +302,58 @@ exports.create = function(element) {
                     return (element.clientHeight - docHeight) / 2;
                 case 'bottom':
                     return element.clientHeight - docHeight;
+                default:
             }
         }
         return 0;
     }
 
+    var currentZoomLevel = 1;
+
     var paint = function() {
 
-        var availableWidth = element.clientWidth * 1; // adjust to 0.5 to see if we draw in the wrong places!
+        const availableWidth = element.clientWidth / currentZoomLevel; // adjust to 0.5 to see if we draw in the wrong places!
         if (doc.width() !== availableWidth) {
             doc.width(availableWidth);
         }
 
-        var docHeight = doc.frame.bounds().h;
+        // const docHeight = doc.frame.bounds().h;
 
-        var dpr = Math.max(1, window.devicePixelRatio || 1);
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
         
-        var logicalWidth = Math.max(doc.frame.actualWidth(), element.clientWidth),
-            logicalHeight = element.clientHeight;
+        const logicalWidth =  element.clientWidth,
+              logicalHeight = element.clientHeight;
         
         canvas.width = dpr * logicalWidth;
         canvas.height = dpr * logicalHeight;
+        
         canvas.style.width = logicalWidth + 'px';
         canvas.style.height = logicalHeight + 'px';
         
-        canvas.style.top = element.scrollTop + 'px';
+        canvas.style.top = '0px';
         spacer.style.width = logicalWidth + 'px';
-        spacer.style.height = Math.max(docHeight, element.clientHeight) + 'px';
 
-        if (docHeight < (element.clientHeight - 50) &&
-            doc.frame.actualWidth() <= availableWidth) {
-            element.style.overflow = 'hidden';
-        } else {
-            element.style.overflow = 'auto';
-        }
+        // spacer.style.height = Math.max(docHeight, element.clientHeight) + 'px';
+        // spacer.style.borderColor = "blue";
+        // spacer.style.borderSize = "3px";
+        // spacer.style.borderStyle = "solid";
+        // console.log(`logical ${logicalWidth}, available ${availableWidth}, canvas ${canvas.width}, zoom ${currentZoomLevel}`);
+
+        // DO NOT OVERRIDE overflow
+        // if (docHeight < (element.clientHeight - 50) && doc.frame.actualWidth() <= availableWidth) {
+        //     element.style.overflow = 'hidden';
+        // } else {
+        //     element.style.overflow = 'auto';
+        // }
 
         var ctx = canvas.getContext('2d');
-        ctx.scale(dpr, dpr);
+        ctx.scale(dpr * currentZoomLevel , dpr * currentZoomLevel );
 
         ctx.clearRect(0, 0, logicalWidth, logicalHeight);
         ctx.translate(0, getVerticalOffset() - element.scrollTop);
-        
-        doc.draw(ctx, rect(0, element.scrollTop, logicalWidth, logicalHeight));
+        if ( drawtext ) {
+            doc.draw(ctx, rect(0, element.scrollTop, logicalWidth, logicalHeight));
+        }        
         doc.drawSelection(ctx, selectDragStart || (document.activeElement === textArea));
     };
 
@@ -349,15 +361,38 @@ exports.create = function(element) {
 
     dom.handleEvent(textArea, 'input', function() {
         var newText = textArea.value;
-        if (textAreaContent != newText) {
+        if (!isShapeJSON(newText) && textAreaContent !== newText) {
             textAreaContent = '';
             textArea.value = '';
             if (newText === plainClipboard) {
                 newText = richClipboard;
             }
+            var isCaretAtLinkEdge =  doc.isCaretAtHyperlinkEdge();
             doc.insert(newText);
+            if ( newText === ' ' || newText === '\n' ) {
+                doc.autolinkOnKeyup();
+            }
+            if ( newText.length >= 'http://x.xx'.length ) {
+                doc.autoLink();
+            }
+            if ( isCaretAtLinkEdge ) {
+                doc.breakHyperlink();
+            }
         }
     });
+
+    var isShapeJSON = function( text ) {
+        try {
+            var obj = JSON.parse( text );
+            if( obj[0] && obj[0].data && obj[0].data.defId ) {
+                return true;
+            } else {
+                return false;
+            }
+        } catch( error ) {
+            return false;
+        }
+    }
 
     var updateTextArea = function() {
         focusChar = focusChar === null ? doc.selection.end : focusChar;
@@ -390,7 +425,7 @@ exports.create = function(element) {
         textAreaContent = doc.selectedRange().plainText();
         textArea.value = textAreaContent;
         textArea.select();
-
+        canvas.dispatchEvent( new Event( 'content-update' ));
         setTimeout(function() {
             textArea.focus();
         }, 10);
@@ -406,7 +441,9 @@ exports.create = function(element) {
     });
 
     function registerMouseEvent(name, handler) {
-        dom.handleMouseEvent(spacer, name, function(ev, x, y) {
+        dom.handleMouseEvent(spacer, name, function(ev, clientX, clientY, left, top) {
+            var x = ( clientX - left ) / currentZoomLevel;
+            var y = ( clientY - top ) / currentZoomLevel;
             handler(doc.byCoordinate(x, y - getVerticalOffset()));
         });
     }
@@ -438,11 +475,19 @@ exports.create = function(element) {
         }
     });
 
-    registerMouseEvent('mouseup', function(node) {
-        selectDragStart = null;
-        keyboardX = null;
-        updateTextArea();
-        textArea.focus();
+    document.addEventListener( 'mouseup', function(){
+        if ( selectDragStart !== null ) {
+            selectDragStart = null;
+            keyboardX = null;
+            updateTextArea();
+            textArea.focus();
+        }
+    });
+
+    canvas.addEventListener('click', function (evt) {
+        if (evt.detail === 3) {
+            doc.selectAll();
+        }
     });
 
     var nextCaretToggle = new Date().getTime(),
@@ -454,6 +499,9 @@ exports.create = function(element) {
         var requirePaint = false;
         var newFocused = document.activeElement === textArea;
         if (focused !== newFocused) {
+            if ( !newFocused && !selectDragStart ) {
+                canvas.dispatchEvent( new Event( 'blur' ));
+            }
             focused = newFocused;
             requirePaint = true;
         }
@@ -482,5 +530,16 @@ exports.create = function(element) {
     update();
 
     doc.sendKey = handleKey;
+    doc.canvas = canvas;
+    doc.textArea = textArea;
+    doc.setZoomLevel = function( level ){ currentZoomLevel = level };
+    doc.getZoomLevel = function(){ return currentZoomLevel };
+    doc.focus = function(){ textArea.focus() };
+    editors.add( doc );
     return doc;
 };
+
+module.exports = {
+    create,
+    editors
+}

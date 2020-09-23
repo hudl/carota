@@ -300,7 +300,19 @@
     <script>
     window.onload = function() {
         var elem = document.querySelector('#exampleEditor');
-        var exampleEditor = carota.editor.create(elem);
+        var carota = document.carota;
+        const DEFAULT_FORMATTING = {
+            size: "14",
+            font: "Helvetica",
+            color: "#ffffff",
+            bold: false,
+            italic: false,
+            underline: false,
+            strikeout: false,
+            align: "left",
+            script: ""
+        };
+        var exampleEditor = carota.editor.create(elem, DEFAULT_FORMATTING, true);
 
         // Set up our custom inline - a smiley emoji
         var smiley = document.querySelector('#smiley img');

@@ -32,6 +32,26 @@ var prototype = node.derive({
         }
         return this._actualWidth;
     },
+    minWidth: function() {
+        var result = 0;
+        var words = [];
+        this.lines.forEach(function(line) {
+            words.push( ...line.positionedWords );
+        });
+        words.forEach(function(word) {
+            if (typeof word.width === 'number') {
+                result = Math.max(result, word.width);
+            }
+        });
+        return result;
+    },    
+    actualHeight: function() {
+        if ( this.lines.length < 1  ) {
+            return 0;
+        }
+        var lastLine = this.lines[this.lines.length - 1];
+        return lastLine.baseline - this.lines[0].bounds().t + lastLine.descent;
+    },
     children: function() {
         return this.lines;
     },
@@ -50,6 +70,7 @@ var prototype = node.derive({
                 return true;
             }
             line.draw(ctx, viewPort);
+            return false;
         });
     },
     type: 'frame'

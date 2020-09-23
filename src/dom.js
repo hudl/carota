@@ -26,10 +26,14 @@ exports.handleEvent = function(element, name, handler) {
     });
 };
 
+exports.removeEvent = function(element, name, handler) {
+    element.removeEventListener(name, handler);
+};
+
 exports.handleMouseEvent = function(element, name, handler) {
     exports.handleEvent(element, name, function(ev) {
         var rect = element.getBoundingClientRect();
-        return handler(ev, ev.clientX - rect.left, ev.clientY - rect.top);
+        return handler(ev, ev.clientX ,ev.clientY, rect.left, rect.top);
     });
 };
 

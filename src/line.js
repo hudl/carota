@@ -1,7 +1,6 @@
 var positionedWord = require('./positionedword');
 var rect = require('./rect');
 var node = require('./node');
-var runs = require('./runs');
 
 /*  A Line is returned by the wrap function. It contains an array of PositionedWord objects that are
     all on the same physical line in the wrapped text.
@@ -76,6 +75,7 @@ module.exports = function(doc, left, width, baseline, ascent, descent, words, or
                     spacing = (width - actualWidth) / (words.length - 1);
                 }
                 break;
+            default:
         }
     }
 

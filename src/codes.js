@@ -138,11 +138,11 @@ codes.listStart = function(obj, data, allCodes) {
                 if (!itemFrame) {
                     var i = inputWord.code();
                     if (i) {
-                        if (i.$ == 'listEnd') {
+                        if (i.$ === 'listEnd') {
                             list.finalize();
                             return list;
                         }
-                        if (i.$ == 'listNext') {
+                        if (i.$ === 'listNext') {
                             startItem(i, inputWord.codeFormatting());
                         }
                     }
@@ -184,8 +184,10 @@ exports.editFilter = function(doc) {
                     }
                     balance--;
                     break;
+                default:
             }
         }
+        return false;
     })) {
         if (balance > 0) {
             var ending = [];

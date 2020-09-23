@@ -2,7 +2,6 @@ var rect = require('./rect');
 var part = require('./part');
 var text = require('./text');
 var node = require('./node');
-var word = require('./word');
 var runs = require('./runs');
 
 var newLineWidth = function(run) {

@@ -16,7 +16,7 @@ var prototype = {
         var self = this;
         return function(eachRun) {
             for (var runIndex = self._run; runIndex <= upTo._run; runIndex++) {
-                var run = self._runs[runIndex];
+                const run = self._runs[runIndex];
                 if (run) {
                     var start = (runIndex === self._run) ? self._offset : 0;
                     var stop = (runIndex === upTo._run) ? upTo._offset : runs.getTextLength(run.text);
@@ -47,7 +47,7 @@ function character(runArray, run, offset) {
 
 function firstNonEmpty(runArray, n) {
     for (; n < runArray.length; n++) {
-        if (runs.getTextLength(runArray[n].text) != 0) {
+        if (runs.getTextLength(runArray[n].text) !== 0) {
             return character(runArray, n, 0);
         }
     }

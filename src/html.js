@@ -47,7 +47,7 @@ var checkAlign = function(value) {
 
 var fontName = function(name) {
     var s = name.split(/\s*,\s*/g);
-    if (s.length == 0) {
+    if (s.length === 0) {
         return name;
     }
     name = s[0]
@@ -86,7 +86,7 @@ var handlers = [
     styleValue('color', 'color'),
     styleValue('fontFamily', 'font', fontName),
     styleValue('fontSize', 'size', function(size) {
-        var m = size.match(/^([\d\.]+)pt$/);
+        var m = size.match(/^([\d.]+)pt$/);
         return m ? parseFloat(m[1]) : 10
     }),
     styleValue('textAlign', 'align', checkAlign),
@@ -125,7 +125,7 @@ newLines.forEach(function(name) {
     isNewLine[name] = true;
 });
 
-exports.parse = function(html, classes) {
+exports.parse = function(html, defaultFormatting, classes) {
     var root = html;
     if (typeof root === 'string') {
         root = document.createElement('div');
@@ -133,7 +133,7 @@ exports.parse = function(html, classes) {
     }
 
     var result = [], inSpace = true;
-    var cons = per(runs.consolidate()).into(result);
+    var cons = per(runs.consolidate( defaultFormatting )).into(result);
     var emit = function(text, formatting) {
         cons.submit(Object.create(formatting, {
             text: { value: text }
@@ -158,7 +158,7 @@ exports.parse = function(html, classes) {
     };
 
     function recurse(node, formatting) {
-        if (node.nodeType == 3) {
+        if (node.nodeType === 3) {
             dealWithSpaces(node.nodeValue, formatting);
         } else {
             formatting = Object.create(formatting);
@@ -182,6 +182,9 @@ exports.parse = function(html, classes) {
                 for (var n = 0; n < node.childNodes.length; n++) {
                     recurse(node.childNodes[n], formatting);
                 }
+                if ( node.childNodes.length === 0 ) { // Empty text <span ></span>
+                    emit('', formatting);
+                }
             }
             if (isNewLine[node.nodeName]) {
                 emit('\n', formatting);
@@ -193,3 +196,48 @@ exports.parse = function(html, classes) {
     return result;
 };
 
+exports.html = function( texts ) {
+    return texts.map( obj => {
+        var span = document.createElement( 'span' );
+        Object.keys(obj).forEach(function(k, i) {
+            if ( k === 'text' ) {
+                var text = obj[ k ]
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+                var brAdded = text.replace(/\n/g, '<br>');
+                span.innerHTML = brAdded;
+            }
+            if ( k === 'bold' ) {            
+                span.style.fontWeight = obj[ k ] ? 'bold' : 'normal';
+            }
+            if ( k === 'italic' ) {            
+                span.style.fontStyle = obj[ k ] ? 'italic' : 'normal';
+            }
+            if ( k === 'underline' ) {            
+                span.style.textDecoration = obj[ k ] ? 'underline' : 'normal';
+            }
+            if ( k === 'color' ) {            
+                span.style.color = obj[ k ];
+            }
+            if ( k === 'font' ) {            
+                span.style.fontFamily = obj[ k ];
+            }
+            if ( k === 'size' ) {            
+                span.style.fontSize = obj[ k ] + 'pt';
+            }
+            if ( k === 'align' ) {            
+                span.style.textAlign = obj[ k ];
+            }
+            if ( k === 'script'  ) {            
+                span.style.verticalAlign = obj[ k ];
+            }
+        });
+        if ( obj.strikeout ) {
+            span.innerHTML = '<del>' + span.innerHTML + '</del>';          
+        }
+        return span.outerHTML.replace( /<br>/g, '<br/>');
+    }).join('');
+}

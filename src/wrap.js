@@ -67,7 +67,7 @@ module.exports = function(left, top, width, ordinal, parent,
                 consumer = code.block(left, y, width, ordinal, parent, inputWord.codeFormatting());
                 lastNewLineHeight = 0;
             }
-            else if (code && code.eof || inputWord.eof) {
+            else if ((code && code.eof) || inputWord.eof) {
                 if (!code || (includeTerminator && includeTerminator(code))) {
                     store(inputWord, emit);
                 }
