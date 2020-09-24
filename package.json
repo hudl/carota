@@ -2,7 +2,7 @@
   "name": "@wyscout/carota",
   "author": "Daniel Earwicker (dan@earwicker.com)",
   "description": "Simple, flexible rich text rendering/editing on HTML Canvas, patched by HUDL",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "repository": {
     "type": "git",
     "url": "https://github.com/hudl/carota.git"
