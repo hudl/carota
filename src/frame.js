@@ -62,13 +62,13 @@ var prototype = node.derive({
         var top = viewPort ? viewPort.t : 0;
         var bottom = viewPort ? (viewPort.t + viewPort.h) : Number.MAX_VALUE;
         this.lines.some(function(line) {
-            var b = line.bounds();
-            if (b.t + b.h < top) {
-                return false;
-            }
-            if (b.t > bottom) {
-                return true;
-            }
+            // var b = line.bounds();
+            // if (b.t + b.h < top) {
+            //     return false;
+            // }
+            // if (b.t > bottom) {
+            //     return true;
+            // }
             line.draw(ctx, viewPort);
             return false;
         });
